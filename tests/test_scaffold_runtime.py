@@ -268,7 +268,7 @@ class McpServerTestCase(unittest.TestCase):
 
     def test_non_object_params_returns_invalid_params(self) -> None:
         _, mcp = self._scaffold()
-        for bad_params in [[], "x", 42]:
+        for bad_params in [[], "x", 42, None]:
             response = mcp.handle_request({"jsonrpc": "2.0", "id": 40, "method": "tools/call", "params": bad_params})
             self.assertIn("error", response, f"Expected error for params={bad_params!r}")
             self.assertEqual(response["error"]["code"], -32602)

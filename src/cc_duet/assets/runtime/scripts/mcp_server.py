@@ -195,10 +195,9 @@ def handle_request(message: object) -> dict | None:
         request_id = message.get("id")
         return _error(request_id, -32600, "Invalid Request: 'method' must be a string")
     request_id = message.get("id")
-    raw_params = message.get("params")
-    if raw_params is not None and not isinstance(raw_params, dict):
+    if "params" in message and not isinstance(message["params"], dict):
         return _error(request_id, -32602, "Invalid params: 'params' must be a JSON object")
-    params = raw_params if isinstance(raw_params, dict) else {}
+    params = message.get("params") if isinstance(message.get("params"), dict) else {}
 
     # Notifications have no id — acknowledge silently
     if request_id is None:

@@ -1,0 +1,30 @@
+{
+  "_schema": "1",
+  "id": "REPLACE_ME",
+  "title": "Short descriptive task title",
+  "spec": "Detailed instructions. Include all project-local context Codex needs.",
+  "acceptance_criteria": [
+    "Criterion 1 - objectively verifiable",
+    "Criterion 2 - touched checks pass"
+  ],
+  "project_paths": [
+    "src/**"
+  ],
+  "base_ref": "HEAD",
+  "priority": 2,
+  "max_rejections": 3,
+  "tags": [],
+  "status": "pending",
+  "created_by": "claude",
+  "created_at": "REPLACE_ME",
+  "codex": {
+    "sandbox": "workspace-write",
+    "model": null,
+    "max_runtime_s": 600,
+    "allowed_env_vars": [],
+    "extra_writable_dirs": []
+  },
+  "result": null,
+  "review": null,
+  "history": []
+}

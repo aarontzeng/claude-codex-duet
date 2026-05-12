@@ -1,0 +1,29 @@
+# Secrets — never committed
+.env
+.env.local
+*.env
+
+# Logs
+logs/
+*.log
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+*.egg
+*.whl
+.venv/
+build/
+dist/
+
+# Codex session residue (not part of queue state)
+.codex-sessions/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Track repo metadata even when globally ignored
+!.github/
+!.github/**

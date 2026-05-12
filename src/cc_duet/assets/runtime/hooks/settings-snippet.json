@@ -1,0 +1,16 @@
+{
+  "_comment": "Merge this hook into ~/.claude/settings.json so Claude sees pending review tasks in the current repo.",
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -lc 'repo_root=$(git rev-parse --show-toplevel 2>/dev/null || pwd); cc-duet hook-dispatch \"$repo_root\"'"
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -28,6 +28,13 @@ classifiers = [
 ]
 dependencies = []
 
+[project.urls]
+Homepage = "https://github.com/aarontzeng/claude-codex-duet"
+Repository = "https://github.com/aarontzeng/claude-codex-duet"
+Documentation = "https://github.com/aarontzeng/claude-codex-duet/tree/main/docs"
+"Bug Tracker" = "https://github.com/aarontzeng/claude-codex-duet/issues"
+Changelog = "https://github.com/aarontzeng/claude-codex-duet/blob/main/CHANGELOG.md"
+
 [project.scripts]
 cc-duet = "cc_duet.cli:main"
 

@@ -1,5 +1,8 @@
 blank_issues_enabled: false
 contact_links:
+  - name: Usage and setup docs
+    url: https://github.com/aarontzeng/claude-codex-duet/tree/main/docs
+    about: Read install, getting-started, tutorial, and troubleshooting docs first.
   - name: Security report
     url: mailto:Aaron.Tzeng@gmail.com?subject=%5Bcc-duet%20security%5D
     about: Report vulnerabilities privately.

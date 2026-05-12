@@ -1,5 +1,9 @@
 # claude-codex-duet
 
+[![CI](https://github.com/aarontzeng/claude-codex-duet/actions/workflows/ci.yml/badge.svg)](https://github.com/aarontzeng/claude-codex-duet/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/downloads/)
+
 `claude-codex-duet` turns Claude Code into an orchestrator/reviewer and Codex into a bounded executor that can be scaffolded into any Git project.
 
 This repo is the **installer + scaffold source**.  
@@ -33,7 +37,7 @@ The package and setup flow are stable enough for experimentation, but the projec
 
 ### End-user install from a release artifact
 
-Download a wheel from the project's release artifacts, then install it with `pipx`:
+Download a wheel from the [GitHub Releases page](https://github.com/aarontzeng/claude-codex-duet/releases), then install it with `pipx`:
 
 ```bash
 python3 -m pip install --user pipx

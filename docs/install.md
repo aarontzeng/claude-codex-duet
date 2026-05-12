@@ -11,7 +11,7 @@
 
 ### From a release artifact
 
-Download a wheel from the project's release artifacts, then install it with `pipx`:
+Download a wheel from the [GitHub Releases page](https://github.com/aarontzeng/claude-codex-duet/releases), then install it with `pipx`:
 
 ```bash
 python3 -m pip install --user pipx

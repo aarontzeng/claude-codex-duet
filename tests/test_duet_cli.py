@@ -268,12 +268,21 @@ class DuetCliTestCase(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp_dir:
             project_root = Path(tmp_dir)
             subprocess.run(["git", "init"], cwd=project_root, check=True, capture_output=True, text=True)
+            with mock.patch.object(duet_cli, "validate_project_requirements", lambda _: None):
+                duet_cli.setup_project(project_root, settings_path=project_root / "settings.json")
             config = duet_cli.mcp_config(project_root)
             self.assertIn("mcpServers", config)
             self.assertIn("cc-duet", config["mcpServers"])
             server = config["mcpServers"]["cc-duet"]
             self.assertEqual(server["command"], "python3")
             self.assertTrue(server["args"][0].endswith("mcp_server.py"))
+
+    def test_mcp_config_fails_without_setup(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            project_root = Path(tmp_dir)
+            subprocess.run(["git", "init"], cwd=project_root, check=True, capture_output=True, text=True)
+            with self.assertRaises(RuntimeError):
+                duet_cli.mcp_config(project_root)
 
     def test_doctor_reports_mcp_not_configured(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -298,3 +307,25 @@ class DuetCliTestCase(unittest.TestCase):
             mcp_status = report["integration"]["mcp"]
             self.assertEqual(mcp_status["status"], "ok")
             self.assertIn("configured", mcp_status["note"])
+
+    def test_doctor_no_false_warning_for_unrelated_mcp_json(self) -> None:
+        """A .mcp.json with only other servers should not warn about missing mcp_server.py."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            project_root = Path(tmp_dir)
+            subprocess.run(["git", "init"], cwd=project_root, check=True, capture_output=True, text=True)
+            # No cc-duet setup, but has a .mcp.json for another server
+            (project_root / ".mcp.json").write_text(json.dumps({"mcpServers": {"other-tool": {"command": "node", "args": ["server.js"]}}}), encoding="utf-8")
+            report = duet_cli.doctor(project_root, settings_path=project_root / "settings.json")
+            mcp_status = report["integration"]["mcp"]
+            self.assertEqual(mcp_status["status"], "ok")
+            self.assertNotIn("missing", mcp_status.get("note", ""))
+
+    def test_doctor_handles_non_object_mcp_json(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            project_root = Path(tmp_dir)
+            subprocess.run(["git", "init"], cwd=project_root, check=True, capture_output=True, text=True)
+            (project_root / ".mcp.json").write_text("[]", encoding="utf-8")
+            report = duet_cli.doctor(project_root, settings_path=project_root / "settings.json")
+            mcp_status = report["integration"]["mcp"]
+            self.assertEqual(mcp_status["status"], "warning")
+            self.assertIn("not an object", mcp_status["note"])

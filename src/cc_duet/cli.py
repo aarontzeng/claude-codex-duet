@@ -510,16 +510,19 @@ def doctor(project_target: Path, settings_path: Path | None = None) -> dict[str,
         mcp_server_script = mcp_project_root / RUNTIME_DIRNAME / "scripts" / "mcp_server.py"
         if not mcp_json_path.is_file():
             report["integration"]["mcp"] = _status_entry("ok", str(mcp_json_path), note="MCP not configured (opt-in; run `cc-duet mcp-config .` for setup instructions)")
-        elif not mcp_server_script.is_file():
-            report["integration"]["mcp"] = _status_entry("warning", str(mcp_json_path), note=".mcp.json exists but .cc-duet/scripts/mcp_server.py is missing; run `cc-duet upgrade .`")
         else:
             try:
                 mcp_cfg = json.loads(mcp_json_path.read_text(encoding="utf-8"))
-                servers = mcp_cfg.get("mcpServers", {})
-                if "cc-duet" in servers:
-                    report["integration"]["mcp"] = _status_entry("ok", str(mcp_json_path), note="MCP configured with cc-duet server")
+                if not isinstance(mcp_cfg, dict):
+                    report["integration"]["mcp"] = _status_entry("warning", str(mcp_json_path), note=".mcp.json is valid JSON but not an object")
                 else:
-                    report["integration"]["mcp"] = _status_entry("ok", str(mcp_json_path), note=".mcp.json exists but no 'cc-duet' server entry; run `cc-duet mcp-config .` for the snippet")
+                    servers = mcp_cfg.get("mcpServers", {})
+                    if "cc-duet" not in servers:
+                        report["integration"]["mcp"] = _status_entry("ok", str(mcp_json_path), note=".mcp.json exists but no 'cc-duet' server entry; run `cc-duet mcp-config .` for the snippet")
+                    elif not mcp_server_script.is_file():
+                        report["integration"]["mcp"] = _status_entry("warning", str(mcp_json_path), note=".mcp.json references cc-duet but .cc-duet/scripts/mcp_server.py is missing; run `cc-duet upgrade .`")
+                    else:
+                        report["integration"]["mcp"] = _status_entry("ok", str(mcp_json_path), note="MCP configured with cc-duet server")
             except (json.JSONDecodeError, OSError):
                 report["integration"]["mcp"] = _status_entry("warning", str(mcp_json_path), note=".mcp.json exists but is not valid JSON")
     except RuntimeError:
@@ -638,14 +641,22 @@ def mcp_config(project_target: Path) -> dict:
     """Generate the .mcp.json configuration snippet for a target project.
 
     Returns the full .mcp.json content as a dict. Does not write any files.
+
+    Raises:
+        RuntimeError: if the target is not a git repo or .cc-duet/ is not scaffolded.
     """
     project_root = resolve_project_root(project_target)
-    server_path = str(project_root / RUNTIME_DIRNAME / "scripts" / "mcp_server.py")
+    runtime_root = project_root / RUNTIME_DIRNAME
+    if not runtime_root.is_dir():
+        raise RuntimeError(f"{runtime_root} does not exist; run `cc-duet setup {project_target}` first")
+    server_script = runtime_root / "scripts" / "mcp_server.py"
+    if not server_script.is_file():
+        raise RuntimeError(f"{server_script} is missing; run `cc-duet upgrade {project_target}` to refresh the runtime")
     return {
         "mcpServers": {
             "cc-duet": {
                 "command": "python3",
-                "args": [server_path],
+                "args": [str(server_script)],
             }
         }
     }
@@ -708,7 +719,11 @@ def main() -> None:
         raise SystemExit(emit_hook_context(Path(args.target)))
 
     if args.command == "mcp-config":
-        config = mcp_config(Path(args.target))
+        try:
+            config = mcp_config(Path(args.target))
+        except RuntimeError as exc:
+            print(f"Error: {exc}", file=sys.stderr)
+            raise SystemExit(1)
         print(json.dumps(config, indent=2))
         print("\n# Save the above as .mcp.json in your project root to enable MCP.", file=sys.stderr)
         return

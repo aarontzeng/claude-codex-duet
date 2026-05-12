@@ -10,6 +10,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - Nothing yet.
 
+## [0.5.0] - 2026-05-12
+
+### Added
+
+- optional MCP stdio server integration for target-project runtimes
+- `cc-duet mcp-config` to print a ready-to-save `.mcp.json` snippet for scaffolded projects
+
+### Changed
+
+- extracted importable runtime queue APIs so `create_task.py`, `codex_runner.py`, and the MCP adapter share the same logic
+- expanded `doctor` with opt-in MCP diagnostics for config health and runtime presence
+- documented MCP as an optional integration while keeping the CLI and `/cc-duet` command as the default workflow
+
+### Fixed
+
+- queue task creation now rejects whitespace-only `project_paths` after normalization
+- MCP request handling now returns structured JSON-RPC errors for malformed requests and invalid params instead of crashing
+- MCP tool calls now convert unexpected runtime exceptions into tool errors instead of terminating the stdio session
+- `mcp-config` now fails fast when the target project has not been scaffolded yet
+
 ## [0.4.0] - 2026-05-12
 
 ### Changed

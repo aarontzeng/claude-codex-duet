@@ -141,3 +141,103 @@ class ScaffoldRuntimeTestCase(unittest.TestCase):
 
             pending_paths = list((project_root / ".cc-duet" / "queue" / "pending").glob("*.json"))
             self.assertEqual({path.stem for path in pending_paths}, {"t-20260512T000000-same-title", "t-20260512T000000-same-title-2"})
+
+
+class McpServerTestCase(unittest.TestCase):
+    """Tests for the MCP stdio server (mcp_server.py)."""
+
+    def _scaffold(self) -> tuple[Path, object]:
+        """Create a scaffolded project and return (project_root, mcp_server module)."""
+        tmp_dir = tempfile.mkdtemp()
+        project_root = Path(tmp_dir)
+        subprocess.run(["git", "init"], cwd=project_root, check=True, capture_output=True, text=True)
+        subprocess.run(["git", "config", "user.name", "Test User"], cwd=project_root, check=True, capture_output=True, text=True)
+        subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=project_root, check=True, capture_output=True, text=True)
+        (project_root / "src").mkdir()
+        subprocess.run(["git", "add", "."], cwd=project_root, check=True, capture_output=True, text=True)
+        subprocess.run(["git", "commit", "-m", "initial", "--allow-empty"], cwd=project_root, check=True, capture_output=True, text=True)
+        settings_path = project_root / "settings.json"
+        with mock.patch.object(duet_cli, "validate_project_requirements", lambda _: None):
+            duet_cli.setup_project(project_root, settings_path=settings_path)
+        mcp = load_module("runtime_mcp_server", project_root / ".cc-duet" / "scripts" / "mcp_server.py")
+        return project_root, mcp
+
+    def test_initialize_returns_capabilities(self) -> None:
+        _, mcp = self._scaffold()
+        response = mcp.handle_request({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}})
+        self.assertEqual(response["id"], 1)
+        result = response["result"]
+        self.assertEqual(result["protocolVersion"], "2024-11-05")
+        self.assertIn("tools", result["capabilities"])
+        self.assertEqual(result["serverInfo"]["name"], "cc-duet")
+
+    def test_tools_list_returns_all_tools(self) -> None:
+        _, mcp = self._scaffold()
+        response = mcp.handle_request({"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}})
+        tools = response["result"]["tools"]
+        tool_names = {tool["name"] for tool in tools}
+        self.assertIn("cc_duet_create_task", tool_names)
+        self.assertIn("cc_duet_list_tasks", tool_names)
+        self.assertIn("cc_duet_review_task", tool_names)
+        self.assertEqual(len(tools), 7)
+
+    def test_notification_returns_none(self) -> None:
+        _, mcp = self._scaffold()
+        response = mcp.handle_request({"jsonrpc": "2.0", "method": "notifications/initialized"})
+        self.assertIsNone(response)
+
+    def test_unknown_method_returns_error(self) -> None:
+        _, mcp = self._scaffold()
+        response = mcp.handle_request({"jsonrpc": "2.0", "id": 3, "method": "nonexistent", "params": {}})
+        self.assertIn("error", response)
+        self.assertEqual(response["error"]["code"], -32601)
+
+    def test_create_and_list_tasks_via_tools_call(self) -> None:
+        project_root, mcp = self._scaffold()
+        # Create a task via MCP
+        create_response = mcp.handle_request({
+            "jsonrpc": "2.0", "id": 10, "method": "tools/call",
+            "params": {"name": "cc_duet_create_task", "arguments": {"title": "MCP test", "spec": "Validate MCP", "project_paths": ["src/**"]}},
+        })
+        create_result = json.loads(create_response["result"]["content"][0]["text"])
+        self.assertIn("task_id", create_result)
+        self.assertIn("path", create_result)
+        task_id = create_result["task_id"]
+
+        # List tasks and find our task
+        list_response = mcp.handle_request({
+            "jsonrpc": "2.0", "id": 11, "method": "tools/call",
+            "params": {"name": "cc_duet_list_tasks", "arguments": {"status": "pending"}},
+        })
+        tasks = json.loads(list_response["result"]["content"][0]["text"])
+        self.assertEqual(len(tasks), 1)
+        self.assertEqual(tasks[0]["id"], task_id)
+
+        # Get the specific task
+        get_response = mcp.handle_request({
+            "jsonrpc": "2.0", "id": 12, "method": "tools/call",
+            "params": {"name": "cc_duet_get_task", "arguments": {"task_id": task_id}},
+        })
+        task = json.loads(get_response["result"]["content"][0]["text"])
+        self.assertEqual(task["title"], "MCP test")
+        self.assertEqual(task["project_paths"], ["src/**"])
+
+    def test_tool_error_returns_is_error(self) -> None:
+        _, mcp = self._scaffold()
+        response = mcp.handle_request({
+            "jsonrpc": "2.0", "id": 20, "method": "tools/call",
+            "params": {"name": "cc_duet_get_task", "arguments": {"task_id": "nonexistent"}},
+        })
+        result = response["result"]
+        self.assertTrue(result["isError"])
+        self.assertIn("not found", result["content"][0]["text"])
+
+    def test_unknown_tool_returns_is_error(self) -> None:
+        _, mcp = self._scaffold()
+        response = mcp.handle_request({
+            "jsonrpc": "2.0", "id": 21, "method": "tools/call",
+            "params": {"name": "nonexistent_tool", "arguments": {}},
+        })
+        result = response["result"]
+        self.assertTrue(result["isError"])
+        self.assertIn("Unknown tool", result["content"][0]["text"])

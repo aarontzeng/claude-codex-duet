@@ -1,4 +1,8 @@
 #!/usr/bin/env python3
+"""Create a cc-duet task in the current project.
+
+Uses the queue_manager API directly instead of shelling out via subprocess.
+"""
 from __future__ import annotations
 
 import argparse
@@ -11,13 +15,11 @@ from pathlib import Path
 ROOT = Path(os.environ.get("DUET_ROOT", os.environ.get("ORCHESTRATOR_ROOT", Path(__file__).parent.parent))).resolve()
 SCRIPTS_DIR = ROOT / "scripts"
 
+# Make queue_manager importable from the same scripts directory.
+if str(SCRIPTS_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS_DIR))
 
-def _qm(*args: str) -> dict:
-    result = subprocess.run([sys.executable, str(SCRIPTS_DIR / "queue_manager.py"), *args], cwd=ROOT.parent, capture_output=True, text=True)
-    if result.returncode != 0:
-        print(result.stderr, file=sys.stderr)
-        sys.exit(result.returncode)
-    return json.loads(result.stdout) if result.stdout.strip() else {}
+import queue_manager as qm  # noqa: E402
 
 
 def interactive_create() -> str:
@@ -43,8 +45,7 @@ def interactive_create() -> str:
     if not project_paths:
         print("At least one project path is required.", file=sys.stderr)
         sys.exit(1)
-    qm_args = ["create", "--title", title, "--spec", spec, "--created-by", "human", "--project-paths", *project_paths]
-    result = _qm(*qm_args)
+    result = qm.create_task(title=title, spec=spec, created_by="human", project_paths=project_paths)
     return result["task_id"]
 
 
@@ -70,33 +71,39 @@ def main() -> None:
         if not project_paths:
             print("Imported task JSON must include project_paths.", file=sys.stderr)
             sys.exit(1)
-        qm_args = ["create", "--title", payload["title"], "--spec", payload.get("spec", ""), "--priority", str(payload.get("priority", 2)), "--created-by", "import", "--project-paths", *project_paths, "--base-ref", payload.get("base_ref", "HEAD"), "--max-rejections", str(payload.get("max_rejections", 3))]
-        if payload.get("acceptance_criteria"):
-            qm_args += ["--acceptance", *payload["acceptance_criteria"]]
         codex_cfg = payload.get("codex", {})
-        if codex_cfg.get("model"):
-            qm_args += ["--model", codex_cfg["model"]]
-        if codex_cfg.get("max_runtime_s"):
-            qm_args += ["--max-runtime", str(codex_cfg["max_runtime_s"])]
-        if codex_cfg.get("allowed_env_vars"):
-            qm_args += ["--env-vars", *codex_cfg["allowed_env_vars"]]
-        result = _qm(*qm_args)
+        result = qm.create_task(
+            title=payload["title"],
+            spec=payload.get("spec", ""),
+            priority=payload.get("priority", 2),
+            created_by="import",
+            project_paths=project_paths,
+            base_ref=payload.get("base_ref", "HEAD"),
+            max_rejections=payload.get("max_rejections", 3),
+            acceptance=payload.get("acceptance_criteria"),
+            model=codex_cfg.get("model"),
+            max_runtime=codex_cfg.get("max_runtime_s"),
+            env_vars=codex_cfg.get("allowed_env_vars"),
+        )
         task_id = result["task_id"]
     elif args.title and args.paths and (args.spec or args.spec_file):
         if args.spec and args.spec_file:
             print("Use either --spec or --spec-file, not both.", file=sys.stderr)
             sys.exit(1)
         spec = args.spec or Path(args.spec_file).read_text(encoding="utf-8")
-        qm_args = ["create", "--title", args.title, "--spec", spec, "--priority", str(args.priority), "--created-by", "human", "--project-paths", *args.paths, "--base-ref", args.base_ref, "--max-rejections", str(args.max_rejections)]
-        if args.acceptance:
-            qm_args += ["--acceptance", *args.acceptance]
-        if args.model:
-            qm_args += ["--model", args.model]
-        if args.env_vars:
-            qm_args += ["--env-vars", *args.env_vars]
-        if args.max_runtime:
-            qm_args += ["--max-runtime", str(args.max_runtime)]
-        result = _qm(*qm_args)
+        result = qm.create_task(
+            title=args.title,
+            spec=spec,
+            priority=args.priority,
+            created_by="human",
+            project_paths=args.paths,
+            base_ref=args.base_ref,
+            max_rejections=args.max_rejections,
+            acceptance=args.acceptance,
+            model=args.model,
+            max_runtime=args.max_runtime,
+            env_vars=args.env_vars,
+        )
         task_id = result["task_id"]
     else:
         task_id = interactive_create()

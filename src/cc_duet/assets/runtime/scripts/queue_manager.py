@@ -1,4 +1,10 @@
 #!/usr/bin/env python3
+"""Queue manager for cc-duet project sidecars.
+
+Provides both an importable Python API and a CLI interface.
+Other runtime scripts (create_task.py, codex_runner.py) import the API
+functions directly instead of shelling out via subprocess.
+"""
 from __future__ import annotations
 
 import argparse
@@ -21,6 +27,10 @@ ENABLE_GIT_COMMITS = os.environ.get("DUET_GIT_COMMITS", os.environ.get("ORCHESTR
 
 STATUSES = ["pending", "claimed", "review", "done", "failed"]
 
+
+# ---------------------------------------------------------------------------
+# Private helpers
+# ---------------------------------------------------------------------------
 
 def _slug(title: str) -> str:
     slug = re.sub(r"[^a-z0-9]+", "-", title.lower())
@@ -81,92 +91,146 @@ def _retry_count(data: dict) -> int:
     return sum(1 for item in data.get("history", []) if item.get("event") == "rejected") + 1
 
 
-def cmd_create(args: argparse.Namespace) -> None:
+# ---------------------------------------------------------------------------
+# Public API — importable by other runtime scripts and future MCP layer
+# ---------------------------------------------------------------------------
+
+def create_task(
+    title: str,
+    spec: str = "",
+    priority: int = 2,
+    created_by: str = "human",
+    project_paths: list[str] | None = None,
+    base_ref: str = "HEAD",
+    max_rejections: int = 3,
+    acceptance: list[str] | None = None,
+    tags: list[str] | None = None,
+    model: str | None = None,
+    max_runtime: int | None = None,
+    env_vars: list[str] | None = None,
+) -> dict:
+    """Create a task in the pending queue.
+
+    Returns:
+        {"task_id": str, "path": str}
+
+    Raises:
+        ValueError: if project_paths is empty.
+    """
+    if not project_paths:
+        raise ValueError("project_paths is required")
     template = json.loads((TEMPLATES_DIR / "task.json").read_text(encoding="utf-8"))
-    task_id = _next_task_id(args.title)
+    task_id = _next_task_id(title)
     task = {**template}
     task["id"] = task_id
-    task["title"] = args.title
-    task["spec"] = args.spec or ""
-    task["priority"] = args.priority
-    task["created_by"] = getattr(args, "created_by", "human")
+    task["title"] = title
+    task["spec"] = spec
+    task["priority"] = priority
+    task["created_by"] = created_by
     task["created_at"] = datetime.now(timezone.utc).isoformat()
     task["status"] = "pending"
-    task["base_ref"] = args.base_ref or "HEAD"
-    task["max_rejections"] = args.max_rejections
-    task["project_paths"] = [item.strip() for item in args.project_paths if item.strip()]
-    if args.acceptance:
-        task["acceptance_criteria"] = [item.strip() for item in args.acceptance]
-    if args.tags:
-        task["tags"] = [item.strip() for item in args.tags]
-    if args.model:
-        task["codex"]["model"] = args.model
-    if args.max_runtime:
-        task["codex"]["max_runtime_s"] = args.max_runtime
-    if args.env_vars:
-        task["codex"]["allowed_env_vars"] = [item.strip() for item in args.env_vars]
+    task["base_ref"] = base_ref or "HEAD"
+    task["max_rejections"] = max_rejections
+    task["project_paths"] = [item.strip() for item in project_paths if item.strip()]
+    if acceptance:
+        task["acceptance_criteria"] = [item.strip() for item in acceptance]
+    if tags:
+        task["tags"] = [item.strip() for item in tags]
+    if model:
+        task["codex"]["model"] = model
+    if max_runtime:
+        task["codex"]["max_runtime_s"] = max_runtime
+    if env_vars:
+        task["codex"]["allowed_env_vars"] = [item.strip() for item in env_vars]
     _history_append(task, "created")
     destination = QUEUE_DIR / "pending" / f"{task_id}.json"
     _write(destination, task)
     _git_commit(f"chore(cc-duet): queue {task_id}")
-    print(json.dumps({"task_id": task_id, "path": str(destination)}, indent=2))
+    return {"task_id": task_id, "path": str(destination)}
 
 
-def cmd_list(args: argparse.Namespace) -> None:
-    statuses = [args.status] if args.status else STATUSES
+def list_tasks(status: str | None = None) -> list[dict]:
+    """List task summaries, optionally filtered by status."""
+    statuses = [status] if status else STATUSES
     items = []
-    for status in statuses:
-        for path in sorted((QUEUE_DIR / status).glob("*.json")):
+    for s in statuses:
+        for path in sorted((QUEUE_DIR / s).glob("*.json")):
             payload = _read(path)
             items.append({"id": payload["id"], "status": payload["status"], "priority": payload["priority"], "title": payload["title"], "path": str(path)})
-    print(json.dumps(items, indent=2))
+    return items
 
 
-def cmd_get(args: argparse.Namespace) -> None:
-    path = _find_task(args.task_id)
+def get_task(task_id: str) -> dict:
+    """Get full task payload.
+
+    Raises:
+        ValueError: if the task is not found.
+    """
+    path = _find_task(task_id)
     if not path:
-        print(json.dumps({"error": f"task {args.task_id} not found"}), file=sys.stderr)
-        sys.exit(1)
-    print(path.read_text(encoding="utf-8"))
+        raise ValueError(f"task {task_id} not found")
+    return _read(path)
 
 
-def cmd_next(_: argparse.Namespace) -> None:
+def next_task() -> dict:
+    """Get the highest-priority pending task.
+
+    Returns:
+        {"task": dict | None, "path": str | None}
+    """
     tasks: list[tuple[int, str, dict, Path]] = []
     for path in (QUEUE_DIR / "pending").glob("*.json"):
         payload = _read(path)
         tasks.append((payload["priority"], payload["created_at"], payload, path))
     if not tasks:
-        print(json.dumps({"task": None}))
-        return
+        return {"task": None}
     tasks.sort(key=lambda item: (item[0], item[1]))
     _, _, task, path = tasks[0]
-    print(json.dumps({"task": task, "path": str(path)}, indent=2))
+    return {"task": task, "path": str(path)}
 
 
-def cmd_move(args: argparse.Namespace) -> None:
-    source = _find_task(args.task_id)
+def move_task(task_id: str, new_status: str, note: str = "") -> dict:
+    """Move a task to a new status.
+
+    Returns:
+        {"task_id": str, "status": str}
+
+    Raises:
+        ValueError: if the task is not found.
+    """
+    source = _find_task(task_id)
     if not source:
-        print(json.dumps({"error": f"task {args.task_id} not found"}), file=sys.stderr)
-        sys.exit(1)
+        raise ValueError(f"task {task_id} not found")
     payload = _read(source)
     old_status = payload["status"]
-    payload["status"] = args.new_status
-    _history_append(payload, f"moved:{old_status}->{args.new_status}", args.note or "")
-    destination = QUEUE_DIR / args.new_status / f"{args.task_id}.json"
+    payload["status"] = new_status
+    _history_append(payload, f"moved:{old_status}->{new_status}", note)
+    destination = QUEUE_DIR / new_status / f"{task_id}.json"
     _write(destination, payload)
     if source != destination:
         source.unlink()
-    _git_commit(f"chore(cc-duet): {args.task_id} {old_status}->{args.new_status}")
-    print(json.dumps({"task_id": args.task_id, "status": args.new_status}))
+    _git_commit(f"chore(cc-duet): {task_id} {old_status}->{new_status}")
+    return {"task_id": task_id, "status": new_status}
 
 
-def cmd_submit_result(args: argparse.Namespace) -> None:
-    path = _find_task(args.task_id)
+def submit_result(task_id: str, result: dict | str, target_status: str = "review") -> dict:
+    """Submit a Codex result for a task.
+
+    Args:
+        result: either a dict or a path to a JSON file.
+
+    Returns:
+        {"task_id": str, "status": str}
+
+    Raises:
+        ValueError: if the task is not found.
+    """
+    path = _find_task(task_id)
     if not path:
-        print(json.dumps({"error": f"task {args.task_id} not found"}), file=sys.stderr)
-        sys.exit(1)
+        raise ValueError(f"task {task_id} not found")
     payload = _read(path)
-    result = json.loads(Path(args.result_json).read_text(encoding="utf-8"))
+    if isinstance(result, str):
+        result = json.loads(Path(result).read_text(encoding="utf-8"))
     payload["result"] = {
         "summary": result.get("summary", ""),
         "self_pass": result.get("self_pass", False),
@@ -174,59 +238,137 @@ def cmd_submit_result(args: argparse.Namespace) -> None:
         "blocker": result.get("blocker"),
         "confidence": result.get("confidence", "low"),
         "completed_at": datetime.now(timezone.utc).isoformat(),
-        "workspace": result.get("workspace", str(WORKTREES_DIR / args.task_id)),
-        "artifacts_dir": result.get("artifacts_dir", str(ARTIFACTS_DIR / args.task_id)),
+        "workspace": result.get("workspace", str(WORKTREES_DIR / task_id)),
+        "artifacts_dir": result.get("artifacts_dir", str(ARTIFACTS_DIR / task_id)),
         "changed_paths": result.get("changed_paths", []),
         "base_ref": result.get("base_ref", payload.get("base_ref", "HEAD"))
     }
-    payload["status"] = args.target_status
-    _history_append(payload, "result_submitted", f"status={args.target_status}, self_pass={result.get('self_pass')}")
-    destination = QUEUE_DIR / args.target_status / f"{args.task_id}.json"
+    payload["status"] = target_status
+    _history_append(payload, "result_submitted", f"status={target_status}, self_pass={result.get('self_pass')}")
+    destination = QUEUE_DIR / target_status / f"{task_id}.json"
     _write(destination, payload)
     if path != destination:
         path.unlink()
-    _git_commit(f"chore(cc-duet): result {args.task_id}->{args.target_status}")
-    print(json.dumps({"task_id": args.task_id, "status": args.target_status}))
+    _git_commit(f"chore(cc-duet): result {task_id}->{target_status}")
+    return {"task_id": task_id, "status": target_status}
 
 
-def cmd_review(args: argparse.Namespace) -> None:
-    path = _find_task(args.task_id)
+def review_task(
+    task_id: str,
+    decision: str,
+    score: int,
+    concerns: list[str] | None = None,
+    feedback: str | None = None,
+) -> dict:
+    """Review a completed task.
+
+    Returns:
+        {"task_id": str, "decision": str, "new_status": str}
+
+    Raises:
+        ValueError: if the task is not found or score is out of range.
+    """
+    path = _find_task(task_id)
     if not path:
-        print(json.dumps({"error": f"task {args.task_id} not found"}), file=sys.stderr)
-        sys.exit(1)
-    if not 0 <= args.score <= 10:
-        print(json.dumps({"error": "score must be between 0 and 10"}), file=sys.stderr)
-        sys.exit(1)
+        raise ValueError(f"task {task_id} not found")
+    if not 0 <= score <= 10:
+        raise ValueError("score must be between 0 and 10")
     payload = _read(path)
-    approved = args.decision in {"approved", "approved_with_concerns"}
-    payload["review"] = {"reviewer": "claude", "reviewed_at": datetime.now(timezone.utc).isoformat(), "decision": args.decision, "score": args.score, "concerns": [item.strip() for item in (args.concerns or []) if item.strip()], "feedback_for_codex": args.feedback, "approved": approved}
+    approved = decision in {"approved", "approved_with_concerns"}
+    payload["review"] = {"reviewer": "claude", "reviewed_at": datetime.now(timezone.utc).isoformat(), "decision": decision, "score": score, "concerns": [item.strip() for item in (concerns or []) if item.strip()], "feedback_for_codex": feedback, "approved": approved}
     if approved:
         new_status = "done"
         payload["status"] = "done"
-        _history_append(payload, "approved", f"score={args.score}")
-    elif args.decision == "failed":
+        _history_append(payload, "approved", f"score={score}")
+    elif decision == "failed":
         new_status = "failed"
         payload["status"] = "failed"
-        _history_append(payload, "failed", f"score={args.score}")
+        _history_append(payload, "failed", f"score={score}")
     else:
         retries = _retry_count(payload)
         max_rejections = int(payload.get("max_rejections", 3) or 3)
-        if args.feedback:
-            payload["spec"] = payload["spec"] + f"\n\n---\n## Review feedback (retry #{retries})\n{args.feedback}"
+        if feedback:
+            payload["spec"] = payload["spec"] + f"\n\n---\n## Review feedback (retry #{retries})\n{feedback}"
         if retries >= max_rejections:
             new_status = "failed"
             payload["status"] = "failed"
-            _history_append(payload, "failed:max_rejections", f"score={args.score}, retries={retries}")
+            _history_append(payload, "failed:max_rejections", f"score={score}, retries={retries}")
         else:
             new_status = "pending"
             payload["status"] = "pending"
-            _history_append(payload, "rejected", f"score={args.score}, retry={retries}")
-    destination = QUEUE_DIR / new_status / f"{args.task_id}.json"
+            _history_append(payload, "rejected", f"score={score}, retry={retries}")
+    destination = QUEUE_DIR / new_status / f"{task_id}.json"
     _write(destination, payload)
     if path != destination:
         path.unlink()
-    _git_commit(f"chore(cc-duet): review {args.task_id} {args.decision} score={args.score}")
-    print(json.dumps({"task_id": args.task_id, "decision": args.decision, "new_status": new_status}))
+    _git_commit(f"chore(cc-duet): review {task_id} {decision} score={score}")
+    return {"task_id": task_id, "decision": decision, "new_status": new_status}
+
+
+# ---------------------------------------------------------------------------
+# CLI layer — thin wrappers that parse args and delegate to the API
+# ---------------------------------------------------------------------------
+
+def cmd_create(args: argparse.Namespace) -> None:
+    result = create_task(
+        title=args.title,
+        spec=args.spec,
+        priority=args.priority,
+        created_by=getattr(args, "created_by", "human"),
+        project_paths=args.project_paths,
+        base_ref=args.base_ref,
+        max_rejections=args.max_rejections,
+        acceptance=args.acceptance,
+        tags=args.tags,
+        model=args.model,
+        max_runtime=args.max_runtime,
+        env_vars=args.env_vars,
+    )
+    print(json.dumps(result, indent=2))
+
+
+def cmd_list(args: argparse.Namespace) -> None:
+    print(json.dumps(list_tasks(args.status), indent=2))
+
+
+def cmd_get(args: argparse.Namespace) -> None:
+    try:
+        payload = get_task(args.task_id)
+        print(json.dumps(payload, indent=2, ensure_ascii=False))
+    except ValueError as exc:
+        print(json.dumps({"error": str(exc)}), file=sys.stderr)
+        sys.exit(1)
+
+
+def cmd_next(_: argparse.Namespace) -> None:
+    print(json.dumps(next_task(), indent=2))
+
+
+def cmd_move(args: argparse.Namespace) -> None:
+    try:
+        result = move_task(args.task_id, args.new_status, args.note or "")
+        print(json.dumps(result))
+    except ValueError as exc:
+        print(json.dumps({"error": str(exc)}), file=sys.stderr)
+        sys.exit(1)
+
+
+def cmd_submit_result(args: argparse.Namespace) -> None:
+    try:
+        result = submit_result(args.task_id, args.result_json, args.target_status)
+        print(json.dumps(result))
+    except ValueError as exc:
+        print(json.dumps({"error": str(exc)}), file=sys.stderr)
+        sys.exit(1)
+
+
+def cmd_review(args: argparse.Namespace) -> None:
+    try:
+        result = review_task(args.task_id, args.decision, args.score, args.concerns, args.feedback)
+        print(json.dumps(result))
+    except ValueError as exc:
+        print(json.dumps({"error": str(exc)}), file=sys.stderr)
+        sys.exit(1)
 
 
 def main() -> None:

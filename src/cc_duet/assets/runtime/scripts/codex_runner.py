@@ -24,6 +24,12 @@ AGENT_CONTEXT_DIR = ROOT / "agent-context"
 SCRIPTS_DIR = ROOT / "scripts"
 LOCK_DIR = ROOT / ".locks"
 
+# Import queue_manager API directly instead of shelling out via subprocess.
+if str(SCRIPTS_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS_DIR))
+
+import queue_manager as qm  # noqa: E402
+
 CODEX_BIN = os.environ.get("CODEX_BIN", "codex")
 CODEX_DEFAULT_MODEL = os.environ.get("CODEX_DEFAULT_MODEL")
 DEFAULT_ALLOWED_ENV_VARS = tuple(value.strip() for value in os.environ.get("CODEX_ALLOWED_ENV_VARS", "").split(",") if value.strip())
@@ -232,7 +238,7 @@ def _run_task_locked(task: dict, task_path: Path, dry_run: bool) -> int:
         _submit_error(task_id, f"unable to determine worktree base revision: {exc}")
         return 1
     if task_path.parent.name == "pending":
-        subprocess.run([sys.executable, str(SCRIPTS_DIR / "queue_manager.py"), "move", task_id, "claimed"], cwd=PROJECT_ROOT, check=True, capture_output=True, text=True)
+        qm.move_task(task_id, "claimed")
     prompt_file = artifacts_dir / ".task-prompt.md"
     prompt_file.write_text(assemble_prompt(task, worktree, artifacts_dir), encoding="utf-8")
     codex_cfg = task.get("codex", {})
@@ -280,7 +286,7 @@ def _run_task_locked(task: dict, task_path: Path, dry_run: bool) -> int:
         target_status = "failed"
     result_json = artifacts_dir / ".codex-result.json"
     result_json.write_text(json.dumps(result, indent=2), encoding="utf-8")
-    subprocess.run([sys.executable, str(SCRIPTS_DIR / "queue_manager.py"), "submit-result", task_id, "--result-json", str(result_json), "--target-status", target_status], cwd=PROJECT_ROOT, check=True)
+    qm.submit_result(task_id, str(result_json), target_status)
     return 0
 
 
@@ -290,7 +296,10 @@ def _submit_error(task_id: str, reason: str) -> None:
     result = {"summary": f"Runner error: {reason}", "self_pass": False, "artifacts": [], "blocker": reason, "confidence": "low", "workspace": str(WORKTREES_DIR / task_id), "artifacts_dir": str(artifacts_dir), "changed_paths": []}
     result_path = artifacts_dir / ".codex-result.json"
     result_path.write_text(json.dumps(result, indent=2), encoding="utf-8")
-    subprocess.run([sys.executable, str(SCRIPTS_DIR / "queue_manager.py"), "submit-result", task_id, "--result-json", str(result_path), "--target-status", "failed"], cwd=PROJECT_ROOT, capture_output=True, text=True)
+    try:
+        qm.submit_result(task_id, str(result_path), "failed")
+    except ValueError:
+        pass
 
 
 def main() -> None:
@@ -301,8 +310,7 @@ def main() -> None:
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
     if args.next:
-        result = subprocess.run([sys.executable, str(SCRIPTS_DIR / "queue_manager.py"), "next"], cwd=PROJECT_ROOT, capture_output=True, text=True, check=True)
-        payload = json.loads(result.stdout)
+        payload = qm.next_task()
         if not payload.get("task"):
             log("No pending tasks.")
             return

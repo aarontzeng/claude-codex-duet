@@ -451,7 +451,7 @@ def _doctor_runtime(project_root: Path) -> dict[str, dict[str, str]]:
 
 
 def _is_source_repo(project_root: Path) -> bool:
-    return project_root == SOURCE_REPO_ROOT and (project_root / "pyproject.toml").is_file()
+    return (project_root / "pyproject.toml").is_file() and (project_root / "src" / "cc_duet" / "assets" / "runtime").is_dir()
 
 
 def _summarize_report(report: dict[str, dict[str, dict[str, str]]]) -> dict[str, str]:

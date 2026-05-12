@@ -29,5 +29,17 @@ jobs:
           python -m venv .venv-wheel
           . .venv-wheel/bin/activate
           python -m pip install dist/*.whl
+          mkdir -p .ci-bin
+          cat > .ci-bin/claude <<'EOF'
+          #!/usr/bin/env bash
+          echo "claude-ci-stub 0.0.0"
+          EOF
+          cat > .ci-bin/codex <<'EOF'
+          #!/usr/bin/env bash
+          echo "codex-ci-stub 0.0.0"
+          EOF
+          chmod +x .ci-bin/claude .ci-bin/codex
+          export PATH="$PWD/.ci-bin:$PATH"
           cc-duet --version
+          cc-duet install-global --force
           cc-duet doctor --strict .

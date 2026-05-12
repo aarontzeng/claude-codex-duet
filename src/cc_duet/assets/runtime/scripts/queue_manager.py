@@ -119,6 +119,9 @@ def create_task(
     """
     if not project_paths:
         raise ValueError("project_paths is required")
+    normalized_paths = [item.strip() for item in project_paths if item.strip()]
+    if not normalized_paths:
+        raise ValueError("project_paths is required (all entries were blank)")
     template = json.loads((TEMPLATES_DIR / "task.json").read_text(encoding="utf-8"))
     task_id = _next_task_id(title)
     task = {**template}
@@ -131,7 +134,7 @@ def create_task(
     task["status"] = "pending"
     task["base_ref"] = base_ref or "HEAD"
     task["max_rejections"] = max_rejections
-    task["project_paths"] = [item.strip() for item in project_paths if item.strip()]
+    task["project_paths"] = normalized_paths
     if acceptance:
         task["acceptance_criteria"] = [item.strip() for item in acceptance]
     if tags:
@@ -176,7 +179,7 @@ def next_task() -> dict:
     """Get the highest-priority pending task.
 
     Returns:
-        {"task": dict | None, "path": str | None}
+        {"task": dict, "path": str} when a task exists, or {"task": None} when the queue is empty.
     """
     tasks: list[tuple[int, str, dict, Path]] = []
     for path in (QUEUE_DIR / "pending").glob("*.json"):
@@ -310,21 +313,25 @@ def review_task(
 # ---------------------------------------------------------------------------
 
 def cmd_create(args: argparse.Namespace) -> None:
-    result = create_task(
-        title=args.title,
-        spec=args.spec,
-        priority=args.priority,
-        created_by=getattr(args, "created_by", "human"),
-        project_paths=args.project_paths,
-        base_ref=args.base_ref,
-        max_rejections=args.max_rejections,
-        acceptance=args.acceptance,
-        tags=args.tags,
-        model=args.model,
-        max_runtime=args.max_runtime,
-        env_vars=args.env_vars,
-    )
-    print(json.dumps(result, indent=2))
+    try:
+        result = create_task(
+            title=args.title,
+            spec=args.spec,
+            priority=args.priority,
+            created_by=getattr(args, "created_by", "human"),
+            project_paths=args.project_paths,
+            base_ref=args.base_ref,
+            max_rejections=args.max_rejections,
+            acceptance=args.acceptance,
+            tags=args.tags,
+            model=args.model,
+            max_runtime=args.max_runtime,
+            env_vars=args.env_vars,
+        )
+        print(json.dumps(result, indent=2))
+    except ValueError as exc:
+        print(json.dumps({"error": str(exc)}), file=sys.stderr)
+        sys.exit(1)
 
 
 def cmd_list(args: argparse.Namespace) -> None:

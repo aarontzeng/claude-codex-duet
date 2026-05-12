@@ -173,20 +173,27 @@ def call_tool(name: str, arguments: dict) -> dict:
         else:
             return {"content": [{"type": "text", "text": f"Unknown tool: {name}"}], "isError": True}
         return {"content": [{"type": "text", "text": json.dumps(result, indent=2, ensure_ascii=False)}]}
-    except (ValueError, FileNotFoundError, KeyError) as exc:
-        return {"content": [{"type": "text", "text": f"Error: {exc}"}], "isError": True}
+    except Exception as exc:
+        return {"content": [{"type": "text", "text": f"Error: {type(exc).__name__}: {exc}"}], "isError": True}
 
 
 # ---------------------------------------------------------------------------
 # JSON-RPC 2.0 request handling
 # ---------------------------------------------------------------------------
 
-def handle_request(message: dict) -> dict | None:
-    """Handle a single JSON-RPC 2.0 request.
+def handle_request(message: object) -> dict | None:
+    """Handle a single JSON-RPC 2.0 message.
 
     Returns a response dict, or None for notifications (no 'id' field).
+    Returns a -32600 Invalid Request error for malformed messages.
     """
-    method = message.get("method", "")
+    # Validate basic structure: must be a dict with a string method
+    if not isinstance(message, dict):
+        return _error(None, -32600, "Invalid Request: message must be a JSON object")
+    method = message.get("method")
+    if not isinstance(method, str):
+        request_id = message.get("id")
+        return _error(request_id, -32600, "Invalid Request: 'method' must be a string")
     request_id = message.get("id")
     params = message.get("params", {})
 
@@ -237,7 +244,10 @@ def main() -> None:
         try:
             message = json.loads(line)
         except json.JSONDecodeError as exc:
-            _log(f"Invalid JSON: {exc}")
+            # JSON-RPC 2.0 §5.1: Parse error (-32700)
+            error_response = _error(None, -32700, f"Parse error: {exc}")
+            sys.stdout.write(json.dumps(error_response, ensure_ascii=False) + "\n")
+            sys.stdout.flush()
             continue
         response = handle_request(message)
         if response is not None:

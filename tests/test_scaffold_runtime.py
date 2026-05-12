@@ -241,3 +241,27 @@ class McpServerTestCase(unittest.TestCase):
         result = response["result"]
         self.assertTrue(result["isError"])
         self.assertIn("Unknown tool", result["content"][0]["text"])
+
+    def test_non_dict_message_returns_invalid_request(self) -> None:
+        _, mcp = self._scaffold()
+        response = mcp.handle_request([1, 2, 3])
+        self.assertIn("error", response)
+        self.assertEqual(response["error"]["code"], -32600)
+
+    def test_non_string_method_returns_invalid_request(self) -> None:
+        _, mcp = self._scaffold()
+        response = mcp.handle_request({"jsonrpc": "2.0", "id": 99, "method": 42})
+        self.assertIn("error", response)
+        self.assertEqual(response["error"]["code"], -32600)
+        self.assertEqual(response["id"], 99)
+
+    def test_unexpected_exception_in_tool_returns_is_error(self) -> None:
+        _, mcp = self._scaffold()
+        with mock.patch.object(mcp.qm, "list_tasks", side_effect=PermissionError("access denied")):
+            response = mcp.handle_request({
+                "jsonrpc": "2.0", "id": 30, "method": "tools/call",
+                "params": {"name": "cc_duet_list_tasks", "arguments": {}},
+            })
+        result = response["result"]
+        self.assertTrue(result["isError"])
+        self.assertIn("PermissionError", result["content"][0]["text"])

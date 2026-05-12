@@ -26,6 +26,7 @@ REQUIRED_RUNTIME_FILES = (
     "scripts/create_task.py",
     "scripts/codex_runner.py",
     "scripts/queue_manager.py",
+    "scripts/mcp_server.py",
     "hooks/settings-snippet.json",
     "agent-context/CONSTRAINTS.md",
     "agent-context/TASK_PROMPT_TEMPLATE.md",

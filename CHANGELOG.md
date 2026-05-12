@@ -10,6 +10,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - Nothing yet.
 
+## [0.4.0] - 2026-05-12
+
+### Changed
+
+- README status wording now describes beta state more directly and calls out possible pre-v1.0 breaking changes
+- package metadata now uses a SPDX license expression, a valid macOS classifier, and advertises Python 3.13 support
+
+### Fixed
+
+- runtime changed-path detection now anchors to the task start commit so committed Codex work cannot bypass scope validation or secret scanning
+- runner timeout handling now escalates from `SIGTERM` to `SIGKILL` so stuck tasks do not remain in `claimed`
+- `.gitignore` managed block repair now recovers from partial marker corruption instead of duplicating the managed block
+- queue task creation now avoids same-second same-title ID collisions by appending a numeric suffix when needed
+- added regression coverage for committed change detection, partial `.gitignore` repair, and task ID collision handling
+
 ## [0.3.0] - 2026-05-12
 
 ### Added

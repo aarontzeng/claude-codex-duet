@@ -490,6 +490,11 @@ def doctor(project_target: Path, settings_path: Path | None = None) -> dict[str,
             (worktree_check.stdout or worktree_check.stderr).strip() or "available",
         )
         if _is_source_repo(project_root):
+            report["integration"]["global_setup_command"] = _status_entry(
+                "ok",
+                str(GLOBAL_SETUP_COMMAND),
+                note="global install is optional when validating the package source repo",
+            )
             report["scaffold"]["gitignore"] = _status_entry("ok", str(project_root / ".gitignore"), note="source repo is package-only")
             report["scaffold"]["project_command"] = _status_entry(
                 "ok",

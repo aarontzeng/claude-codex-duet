@@ -503,6 +503,28 @@ def doctor(project_target: Path, settings_path: Path | None = None) -> dict[str,
         "runtime": {},
     }
 
+    # MCP status (informational — MCP is opt-in, not required)
+    try:
+        mcp_project_root = resolve_project_root(project_target)
+        mcp_json_path = mcp_project_root / ".mcp.json"
+        mcp_server_script = mcp_project_root / RUNTIME_DIRNAME / "scripts" / "mcp_server.py"
+        if not mcp_json_path.is_file():
+            report["integration"]["mcp"] = _status_entry("ok", str(mcp_json_path), note="MCP not configured (opt-in; run `cc-duet mcp-config .` for setup instructions)")
+        elif not mcp_server_script.is_file():
+            report["integration"]["mcp"] = _status_entry("warning", str(mcp_json_path), note=".mcp.json exists but .cc-duet/scripts/mcp_server.py is missing; run `cc-duet upgrade .`")
+        else:
+            try:
+                mcp_cfg = json.loads(mcp_json_path.read_text(encoding="utf-8"))
+                servers = mcp_cfg.get("mcpServers", {})
+                if "cc-duet" in servers:
+                    report["integration"]["mcp"] = _status_entry("ok", str(mcp_json_path), note="MCP configured with cc-duet server")
+                else:
+                    report["integration"]["mcp"] = _status_entry("ok", str(mcp_json_path), note=".mcp.json exists but no 'cc-duet' server entry; run `cc-duet mcp-config .` for the snippet")
+            except (json.JSONDecodeError, OSError):
+                report["integration"]["mcp"] = _status_entry("warning", str(mcp_json_path), note=".mcp.json exists but is not valid JSON")
+    except RuntimeError:
+        report["integration"]["mcp"] = _status_entry("ok", "skipped", note="MCP check skipped (not a git project)")
+
     try:
         project_root = resolve_project_root(project_target)
         report["scaffold"]["project_root"] = _status_entry("ok", str(project_root))
@@ -612,6 +634,23 @@ def emit_hook_context(project_target: Path) -> int:
     return 0
 
 
+def mcp_config(project_target: Path) -> dict:
+    """Generate the .mcp.json configuration snippet for a target project.
+
+    Returns the full .mcp.json content as a dict. Does not write any files.
+    """
+    project_root = resolve_project_root(project_target)
+    server_path = str(project_root / RUNTIME_DIRNAME / "scripts" / "mcp_server.py")
+    return {
+        "mcpServers": {
+            "cc-duet": {
+                "command": "python3",
+                "args": [server_path],
+            }
+        }
+    }
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Install and scaffold the cc-duet workflow into Git projects")
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
@@ -633,6 +672,9 @@ def main() -> None:
 
     hook_parser = sub.add_parser("hook-dispatch", help="Emit Claude hook context for pending cc-duet review tasks")
     hook_parser.add_argument("target", nargs="?", default=".")
+
+    mcp_parser = sub.add_parser("mcp-config", help="Print the MCP server configuration for a target project")
+    mcp_parser.add_argument("target", nargs="?", default=".")
 
     args = parser.parse_args()
 
@@ -664,6 +706,12 @@ def main() -> None:
 
     if args.command == "hook-dispatch":
         raise SystemExit(emit_hook_context(Path(args.target)))
+
+    if args.command == "mcp-config":
+        config = mcp_config(Path(args.target))
+        print(json.dumps(config, indent=2))
+        print("\n# Save the above as .mcp.json in your project root to enable MCP.", file=sys.stderr)
+        return
 
 
 if __name__ == "__main__":

@@ -137,6 +137,33 @@ Claude should then:
 4. inspect the result and diff
 5. record `approved`, `rejected`, or `failed`
 
+### Optional: MCP integration
+
+Instead of the `/cc-duet` slash command, you can expose the queue operations
+as MCP tools so Claude Code discovers them automatically.
+
+Generate the config:
+
+```bash
+cc-duet mcp-config .
+```
+
+Save the output as `.mcp.json` in your project root. Claude Code will pick up
+the `cc-duet` MCP server on next launch. The server exposes 7 tools
+(`cc_duet_create_task`, `cc_duet_list_tasks`, `cc_duet_get_task`,
+`cc_duet_next_task`, `cc_duet_move_task`, `cc_duet_submit_result`,
+`cc_duet_review_task`) — all thin wrappers over the same queue_manager API.
+
+**The CLI and `/cc-duet` command remain the default.** MCP is an optional,
+opt-in mode for users who prefer tool-based discovery over slash commands.
+
+To verify MCP integration health:
+
+```bash
+cc-duet doctor .
+# Check the "mcp" entry under "integration"
+```
+
 ## Expected target-project files
 
 After setup, the target repo will have:
@@ -158,6 +185,7 @@ cc-duet install-global
 cc-duet doctor .
 cc-duet setup .
 cc-duet upgrade .
+cc-duet mcp-config .    # print MCP server config (opt-in)
 ```
 
 ### Target-project sidecar

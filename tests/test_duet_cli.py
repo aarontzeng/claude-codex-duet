@@ -263,3 +263,38 @@ class DuetCliTestCase(unittest.TestCase):
     def test_runtime_runner_does_not_force_hardcoded_default_model(self) -> None:
         runner = (duet_cli.RUNTIME_SOURCE / "scripts" / "codex_runner.py").read_text(encoding="utf-8")
         self.assertNotIn('"o4-mini"', runner)
+
+    def test_mcp_config_returns_valid_server_config(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            project_root = Path(tmp_dir)
+            subprocess.run(["git", "init"], cwd=project_root, check=True, capture_output=True, text=True)
+            config = duet_cli.mcp_config(project_root)
+            self.assertIn("mcpServers", config)
+            self.assertIn("cc-duet", config["mcpServers"])
+            server = config["mcpServers"]["cc-duet"]
+            self.assertEqual(server["command"], "python3")
+            self.assertTrue(server["args"][0].endswith("mcp_server.py"))
+
+    def test_doctor_reports_mcp_not_configured(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            project_root = Path(tmp_dir)
+            subprocess.run(["git", "init"], cwd=project_root, check=True, capture_output=True, text=True)
+            with mock.patch.object(duet_cli, "validate_project_requirements", lambda _: None):
+                duet_cli.setup_project(project_root, settings_path=project_root / "settings.json")
+            report = duet_cli.doctor(project_root, settings_path=project_root / "settings.json")
+            mcp_status = report["integration"]["mcp"]
+            self.assertEqual(mcp_status["status"], "ok")
+            self.assertIn("opt-in", mcp_status["note"])
+
+    def test_doctor_detects_configured_mcp_server(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            project_root = Path(tmp_dir)
+            subprocess.run(["git", "init"], cwd=project_root, check=True, capture_output=True, text=True)
+            with mock.patch.object(duet_cli, "validate_project_requirements", lambda _: None):
+                duet_cli.setup_project(project_root, settings_path=project_root / "settings.json")
+            mcp_json = {"mcpServers": {"cc-duet": {"command": "python3", "args": [".cc-duet/scripts/mcp_server.py"]}}}
+            (project_root / ".mcp.json").write_text(json.dumps(mcp_json), encoding="utf-8")
+            report = duet_cli.doctor(project_root, settings_path=project_root / "settings.json")
+            mcp_status = report["integration"]["mcp"]
+            self.assertEqual(mcp_status["status"], "ok")
+            self.assertIn("configured", mcp_status["note"])

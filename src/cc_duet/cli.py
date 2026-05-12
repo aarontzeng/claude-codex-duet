@@ -19,7 +19,6 @@ PROJECT_COMMAND_SOURCE = ASSETS_ROOT / "project-command" / "cc-duet.md"
 GLOBAL_COMMAND_DIR = Path.home() / ".claude" / "commands" / "cc-duet"
 GLOBAL_SETUP_COMMAND = GLOBAL_COMMAND_DIR / "setup.md"
 RUNTIME_DIRNAME = ".cc-duet"
-SOURCE_REPO_ROOT = PACKAGE_ROOT.parent.parent
 MANAGED_BLOCK_BEGIN = "# BEGIN cc-duet managed block"
 MANAGED_BLOCK_END = "# END cc-duet managed block"
 REQUIRED_RUNTIME_FILES = (
@@ -100,6 +99,29 @@ def render_gitignore_block(ignore_claude: bool) -> str:
     return "\n".join(lines) + "\n"
 
 
+def _repair_partial_gitignore_block(existing: str) -> str:
+    lines = existing.splitlines()
+    begin_index = next((index for index, line in enumerate(lines) if line == MANAGED_BLOCK_BEGIN), None)
+    end_index = next((index for index, line in enumerate(lines) if line == MANAGED_BLOCK_END), None)
+    managed_lines = {f"{RUNTIME_DIRNAME}/", ".claude/", ""}
+    if begin_index is not None and end_index is None:
+        stop = begin_index + 1
+        while stop < len(lines) and lines[stop] in managed_lines:
+            stop += 1
+        lines = lines[:begin_index] + lines[stop:]
+    elif end_index is not None and begin_index is None:
+        start = end_index
+        while start > 0 and lines[start - 1] in managed_lines:
+            start -= 1
+        lines = lines[:start] + lines[end_index + 1 :]
+    elif begin_index is not None and end_index is not None and begin_index > end_index:
+        lines = [line for line in lines if line not in {MANAGED_BLOCK_BEGIN, MANAGED_BLOCK_END}]
+    repaired = "\n".join(lines)
+    if existing.endswith("\n") and repaired:
+        return repaired + "\n"
+    return repaired
+
+
 def render_gitignore_contents(existing: str, ignore_claude: bool) -> str:
     block = render_gitignore_block(ignore_claude)
     if MANAGED_BLOCK_BEGIN in existing and MANAGED_BLOCK_END in existing:
@@ -108,8 +130,7 @@ def render_gitignore_contents(existing: str, ignore_claude: bool) -> str:
         if finish < len(existing) and existing[finish : finish + 1] == "\n":
             finish += 1
         return existing[:start] + block + existing[finish:]
-    if block.strip() in existing:
-        return existing
+    existing = _repair_partial_gitignore_block(existing)
     prefix = "" if not existing or existing.endswith("\n") else "\n"
     return existing + prefix + block
 

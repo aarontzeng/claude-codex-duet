@@ -66,6 +66,23 @@ class DuetCliTestCase(unittest.TestCase):
             self.assertIn(".cc-duet/", updated)
             self.assertNotIn(".claude/\n", updated)
 
+    def test_render_gitignore_contents_recovers_partial_managed_block(self) -> None:
+        existing = "\n".join(
+            [
+                "*.log",
+                duet_cli.MANAGED_BLOCK_BEGIN,
+                ".cc-duet/",
+                ".claude/",
+                "",
+                "node_modules/",
+            ]
+        )
+        updated = duet_cli.render_gitignore_contents(existing, ignore_claude=True)
+        self.assertEqual(updated.count(duet_cli.MANAGED_BLOCK_BEGIN), 1)
+        self.assertEqual(updated.count(duet_cli.MANAGED_BLOCK_END), 1)
+        self.assertIn("*.log", updated)
+        self.assertIn("node_modules/", updated)
+
     def test_render_global_setup_command_mentions_cc_duet_setup(self) -> None:
         command = duet_cli.render_global_setup_command()
         self.assertIn("cc-duet setup", command)

@@ -32,6 +32,16 @@ def _task_id() -> str:
     return f"t-{ts}"
 
 
+def _next_task_id(title: str) -> str:
+    base_task_id = f"{_task_id()}-{_slug(title)}"
+    task_id = base_task_id
+    suffix = 2
+    while _find_task(task_id):
+        task_id = f"{base_task_id}-{suffix}"
+        suffix += 1
+    return task_id
+
+
 def _find_task(task_id: str) -> Optional[Path]:
     for status in STATUSES:
         path = QUEUE_DIR / status / f"{task_id}.json"
@@ -73,7 +83,7 @@ def _retry_count(data: dict) -> int:
 
 def cmd_create(args: argparse.Namespace) -> None:
     template = json.loads((TEMPLATES_DIR / "task.json").read_text(encoding="utf-8"))
-    task_id = f"{_task_id()}-{_slug(args.title)}"
+    task_id = _next_task_id(args.title)
     task = {**template}
     task["id"] = task_id
     task["title"] = args.title

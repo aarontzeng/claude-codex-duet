@@ -22,8 +22,8 @@ The installed runtime lives inside the target project as a local `.cc-duet/` sid
 
 ## Status
 
-Current status: **beta**.  
-The package and setup flow are stable enough for experimentation, but the project is still being hardened toward a top-tier public OSS release.
+**Beta.** The installer and scaffold flow are stable enough for everyday experimentation.  
+The runtime task format and CLI flags may still see breaking changes before v1.0.
 
 ## Prerequisites
 

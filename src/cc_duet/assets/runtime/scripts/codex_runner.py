@@ -126,8 +126,13 @@ def ensure_worktree(task: dict) -> Path:
     return worktree
 
 
-def get_changed_paths(worktree: Path) -> list[str]:
-    result = subprocess.run(["git", "diff", "--name-only", "--relative", "HEAD"], cwd=worktree, check=True, capture_output=True, text=True)
+def _git_stdout(cwd: Path, *args: str) -> str:
+    result = subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True, text=True)
+    return result.stdout.strip()
+
+
+def get_changed_paths(worktree: Path, comparison_ref: str) -> list[str]:
+    result = subprocess.run(["git", "diff", "--name-only", "--relative", comparison_ref], cwd=worktree, check=True, capture_output=True, text=True)
     return [line.strip() for line in result.stdout.splitlines() if line.strip()]
 
 
@@ -221,6 +226,11 @@ def _run_task_locked(task: dict, task_path: Path, dry_run: bool) -> int:
     except (RuntimeError, subprocess.CalledProcessError) as exc:
         _submit_error(task_id, f"unable to prepare worktree: {exc}")
         return 1
+    try:
+        comparison_ref = _git_stdout(worktree, "rev-parse", "HEAD")
+    except subprocess.CalledProcessError as exc:
+        _submit_error(task_id, f"unable to determine worktree base revision: {exc}")
+        return 1
     if task_path.parent.name == "pending":
         subprocess.run([sys.executable, str(SCRIPTS_DIR / "queue_manager.py"), "move", task_id, "claimed"], cwd=PROJECT_ROOT, check=True, capture_output=True, text=True)
     prompt_file = artifacts_dir / ".task-prompt.md"
@@ -238,18 +248,28 @@ def _run_task_locked(task: dict, task_path: Path, dry_run: bool) -> int:
         try:
             stdout, _ = process.communicate(timeout=timeout)
         except subprocess.TimeoutExpired:
-            os.killpg(os.getpgid(process.pid), signal.SIGTERM)
-            stdout, _ = process.communicate(timeout=10)
+            try:
+                os.killpg(os.getpgid(process.pid), signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+            try:
+                stdout, _ = process.communicate(timeout=10)
+            except subprocess.TimeoutExpired:
+                try:
+                    os.killpg(os.getpgid(process.pid), signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                stdout, _ = process.communicate()
             stdout = (stdout or b"") + b"\n[RUNNER: process killed due to timeout]"
         if stdout:
             (artifacts_dir / ".codex-output.log").write_bytes(stdout if isinstance(stdout, bytes) else stdout.encode())
     except FileNotFoundError:
         _submit_error(task_id, "codex binary not found")
         return 1
-    changed_paths = get_changed_paths(worktree)
+    changed_paths = get_changed_paths(worktree, comparison_ref)
     violations = validate_changed_paths(changed_paths, allowed_paths)
     result = parse_result_md(artifacts_dir)
-    result.update({"workspace": str(worktree), "artifacts_dir": str(artifacts_dir), "changed_paths": changed_paths, "base_ref": task.get("base_ref", "HEAD")})
+    result.update({"workspace": str(worktree), "artifacts_dir": str(artifacts_dir), "changed_paths": changed_paths, "base_ref": comparison_ref})
     target_status = "review"
     if violations:
         result.update({"summary": "Runner blocked submission because Codex modified files outside the declared task scope.", "self_pass": False, "blocker": "Out-of-scope files: " + ", ".join(violations), "confidence": "low"})

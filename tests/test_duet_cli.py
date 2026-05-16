@@ -284,6 +284,43 @@ class DuetCliTestCase(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 duet_cli.mcp_config(project_root)
 
+    def test_global_status_reads_scaffold_queue(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            project_root = Path(tmp_dir)
+            subprocess.run(["git", "init"], cwd=project_root, check=True, capture_output=True, text=True)
+            with mock.patch.object(duet_cli, "validate_project_requirements", lambda _: None):
+                duet_cli.setup_project(project_root, settings_path=project_root / "settings.json")
+            task_path = project_root / ".cc-duet" / "queue" / "pending" / "t-status.json"
+            task_path.write_text(
+                json.dumps({"id": "t-status", "status": "pending", "priority": 2, "title": "Status", "created_at": "2026-05-16T00:00:00+00:00"}),
+                encoding="utf-8",
+            )
+
+            stdout = io.StringIO()
+            with mock.patch("sys.argv", ["cc-duet", "status", str(project_root)]), mock.patch("sys.stdout", stdout):
+                duet_cli.main()
+
+            self.assertEqual(stdout.getvalue().strip(), "1 pending")
+
+    def test_global_gc_removes_done_artifacts(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            project_root = Path(tmp_dir)
+            subprocess.run(["git", "init"], cwd=project_root, check=True, capture_output=True, text=True)
+            with mock.patch.object(duet_cli, "validate_project_requirements", lambda _: None):
+                duet_cli.setup_project(project_root, settings_path=project_root / "settings.json")
+            (project_root / ".cc-duet" / "queue" / "done" / "t-done.json").write_text(
+                json.dumps({"id": "t-done", "status": "done", "priority": 2, "title": "Done", "created_at": "2026-05-16T00:00:00+00:00"}),
+                encoding="utf-8",
+            )
+            (project_root / ".cc-duet" / "artifacts" / "t-done").mkdir(parents=True)
+
+            stdout = io.StringIO()
+            with mock.patch("sys.argv", ["cc-duet", "gc", str(project_root)]), mock.patch("sys.stdout", stdout):
+                duet_cli.main()
+
+            self.assertIn("Removed 1 artifact dir(s): t-done", stdout.getvalue())
+            self.assertFalse((project_root / ".cc-duet" / "artifacts" / "t-done").exists())
+
     def test_doctor_reports_mcp_not_configured(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             project_root = Path(tmp_dir)

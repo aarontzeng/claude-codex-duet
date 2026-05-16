@@ -26,6 +26,7 @@ python3 .cc-duet/scripts/create_task.py \
    - `git -C <worktree> diff --stat`
 6. Apply `.cc-duet/agent-context/REVIEW_CRITERIA.md`
 7. Record the decision with `queue_manager.py review`
+8. If the task is approved, keep the worktree available until the implementation has been inspected or merged; use `queue_manager.py gc` only after it is no longer needed.
 
 ## Rules
 

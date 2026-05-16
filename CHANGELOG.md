@@ -10,6 +10,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - Nothing yet.
 
+## [0.6.0] - 2026-05-16
+
+### Added
+
+- `cc-duet status` and runtime `queue_manager.py status` for concise queue summaries
+- `cc-duet gc` and runtime `queue_manager.py gc` to explicitly prune done/failed task worktrees and artifacts
+- optional `codex_runner.py --clean` cleanup path for failed task submissions
+
+### Changed
+
+- MCP server version now reads the scaffold manifest instead of a hardcoded value
+- runtime test loading now evicts cached sidecar modules so independent scaffold tests do not leak state
+- MCP scaffold tests now clean up temporary project directories
+
+### Fixed
+
+- approved task worktrees are kept after review so reviewers can inspect or merge the implementation before explicit garbage collection
+- rejected and failed task worktrees are cleaned after review so retries start from a fresh worktree
+
 ## [0.5.0] - 2026-05-12
 
 ### Added

@@ -195,7 +195,7 @@ def scan_paths_for_secrets(worktree: Path, artifacts_dir: Path, changed_paths: l
 
 
 def _cleanup_worktree(task_id: str) -> None:
-    """Remove the worktree for a task after successful submission."""
+    """Remove the worktree for a failed task after submission."""
     import shutil
 
     worktree_path = WORKTREES_DIR / task_id
@@ -225,8 +225,15 @@ def run_task(task_id: str, dry_run: bool = False, clean: bool = False) -> int:
     try:
         rc = _run_task_locked(task, task_path, dry_run)
         if clean and not dry_run and rc == 0:
-            _cleanup_worktree(task_id)
-            log(f"Cleaned up worktree for {task_id}")
+            try:
+                status = qm.get_task(task_id).get("status")
+            except ValueError:
+                status = None
+            if status == "failed":
+                _cleanup_worktree(task_id)
+                log(f"Cleaned up failed worktree for {task_id}")
+            else:
+                log(f"Keeping worktree for {task_id}; status is {status or 'unknown'}")
         return rc
     finally:
         lock.release()
@@ -330,7 +337,7 @@ def main() -> None:
     group.add_argument("--task-id")
     group.add_argument("--next", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
-    parser.add_argument("--clean", action="store_true", help="Remove worktree after successful submission to review")
+    parser.add_argument("--clean", action="store_true", help="Remove failed task worktrees after submission; review worktrees are kept")
     args = parser.parse_args()
     if args.next:
         payload = qm.next_task()

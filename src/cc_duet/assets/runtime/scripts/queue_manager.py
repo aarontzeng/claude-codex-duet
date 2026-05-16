@@ -305,16 +305,17 @@ def review_task(
     if path != destination:
         path.unlink()
     _git_commit(f"chore(cc-duet): review {task_id} {decision} score={score}")
-    _auto_cleanup_worktree(task_id)
+    if new_status != "done":
+        _auto_cleanup_worktree(task_id)
     return {"task_id": task_id, "decision": decision, "new_status": new_status}
 
 
 def _auto_cleanup_worktree(task_id: str) -> None:
-    """Remove a task's worktree after review (approved, rejected, or failed).
+    """Remove a rejected or failed task's worktree after review.
 
-    The worktree is no longer needed: approved diffs are recorded in the task
-    JSON, rejected tasks get a fresh worktree on retry, and failed tasks are
-    terminal.  Artifacts are kept — they're small and useful for debugging.
+    Approved task worktrees are intentionally kept so reviewers can inspect or
+    merge the implementation. Rejected tasks get a fresh worktree on retry, and
+    failed tasks are terminal. Artifacts are kept for debugging.
     """
     import shutil
 

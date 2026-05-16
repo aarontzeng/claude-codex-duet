@@ -137,6 +137,10 @@ Claude should then:
 4. inspect the result and diff
 5. record `approved`, `rejected`, or `failed`
 
+Approved task worktrees are kept for inspection and manual merge. After you no
+longer need completed task worktrees or artifacts, clean them explicitly with
+`cc-duet gc .`.
+
 ### Optional: MCP integration
 
 Instead of the `/cc-duet` slash command, you can expose the queue operations
@@ -186,6 +190,8 @@ cc-duet doctor .
 cc-duet setup .
 cc-duet upgrade .
 cc-duet mcp-config .    # print MCP server config (opt-in)
+cc-duet status .        # concise queue summary
+cc-duet gc .            # prune done/failed task worktrees and artifacts
 ```
 
 ### Target-project sidecar
@@ -193,8 +199,11 @@ cc-duet mcp-config .    # print MCP server config (opt-in)
 ```bash
 python3 .cc-duet/scripts/create_task.py --title "..." --spec "..." --paths "src/**"
 python3 .cc-duet/scripts/codex_runner.py --next
+python3 .cc-duet/scripts/codex_runner.py --next --clean
 python3 .cc-duet/scripts/queue_manager.py list --status review
+python3 .cc-duet/scripts/queue_manager.py status
 python3 .cc-duet/scripts/queue_manager.py review <task-id> --decision approved --score 9
+python3 .cc-duet/scripts/queue_manager.py gc --keep-last 3
 ```
 
 ## Security model

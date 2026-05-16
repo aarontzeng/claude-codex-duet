@@ -25,8 +25,14 @@ That means this sidecar is **local-only by default**:
 python3 .cc-duet/scripts/create_task.py --title "..." --spec "..." --paths "src/**"
 python3 .cc-duet/scripts/codex_runner.py --next
 python3 .cc-duet/scripts/queue_manager.py list --status review
+python3 .cc-duet/scripts/queue_manager.py status
 python3 .cc-duet/scripts/queue_manager.py review <task-id> --decision approved --score 9
+python3 .cc-duet/scripts/queue_manager.py gc --keep-last 3
 ```
+
+Approved task worktrees are kept for inspection and manual merge. Rejected and
+failed review outcomes clean their worktrees automatically; done/failed task
+artifacts can be pruned explicitly with `queue_manager.py gc`.
 
 ## Claude command
 

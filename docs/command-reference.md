@@ -50,6 +50,20 @@ Refreshes an already installed `.cc-duet/` runtime to the currently installed pa
 
 Internal command used by the global Claude hook. It reads `.cc-duet/queue/review/*.json` and emits additional Claude hook context without executing repo-local shell code.
 
+### `cc-duet status [path]`
+
+Prints a concise queue summary for a scaffolded target project, such as `2 pending, 1 review`.
+
+### `cc-duet gc [path]`
+
+Prunes worktrees and artifacts for done/failed tasks in a scaffolded target project.
+Approved task worktrees are kept until this command runs so reviewers can inspect
+or merge the implementation.
+
+**Flags**
+
+- `--keep-last <n>` — keep the most recent `n` done tasks while still pruning failed tasks
+
 ## Installed target-project commands
 
 ### `python3 .cc-duet/scripts/create_task.py`
@@ -80,6 +94,7 @@ Run one task through Codex in an isolated worktree.
 - `--task-id <id>`
 - `--next`
 - `--dry-run`
+- `--clean` — remove failed task worktrees after submission; review worktrees are kept for inspection
 
 ### `python3 .cc-duet/scripts/queue_manager.py`
 
@@ -94,5 +109,7 @@ Inspect or mutate queue state.
 - `move`
 - `submit-result`
 - `review`
+- `status`
+- `gc`
 
 `review` is the normal Claude-side decision point after Codex finishes. `submit-result` is normally called by `codex_runner.py`.

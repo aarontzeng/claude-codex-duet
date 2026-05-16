@@ -36,8 +36,21 @@ if str(SCRIPTS_DIR) not in sys.path:
 import queue_manager as qm  # noqa: E402
 
 SERVER_NAME = "cc-duet"
-SERVER_VERSION = "0.1.0"
 PROTOCOL_VERSION = "2024-11-05"
+
+
+def _read_server_version() -> str:
+    manifest_path = ROOT / "manifest.json"
+    if manifest_path.is_file():
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            return str(manifest.get("cc_duet_version", "0.0.0"))
+        except (json.JSONDecodeError, OSError):
+            pass
+    return "0.0.0"
+
+
+SERVER_VERSION = _read_server_version()
 
 # ---------------------------------------------------------------------------
 # Tool definitions (JSON Schema for MCP tools/list)

@@ -4,6 +4,7 @@ import argparse
 import importlib.util
 import io
 import json
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -17,6 +18,11 @@ from cc_duet import cli as duet_cli
 
 
 def load_module(module_name: str, path: Path):
+    # Evict cached runtime modules so each scaffold gets a fresh load
+    # pointing to its own temp directory.
+    for key in list(sys.modules):
+        if key in ("queue_manager", "mcp_server") or key.startswith("runtime_"):
+            del sys.modules[key]
     spec = importlib.util.spec_from_file_location(module_name, path)
     if spec is None or spec.loader is None:
         raise RuntimeError(f"Unable to load module from {path}")
@@ -149,6 +155,7 @@ class McpServerTestCase(unittest.TestCase):
     def _scaffold(self) -> tuple[Path, object]:
         """Create a scaffolded project and return (project_root, mcp_server module)."""
         tmp_dir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp_dir, ignore_errors=True)
         project_root = Path(tmp_dir)
         subprocess.run(["git", "init"], cwd=project_root, check=True, capture_output=True, text=True)
         subprocess.run(["git", "config", "user.name", "Test User"], cwd=project_root, check=True, capture_output=True, text=True)

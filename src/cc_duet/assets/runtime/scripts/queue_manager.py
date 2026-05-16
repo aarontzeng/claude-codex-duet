@@ -308,6 +308,98 @@ def review_task(
     return {"task_id": task_id, "decision": decision, "new_status": new_status}
 
 
+def status_summary() -> dict:
+    """Return a concise count of tasks per status.
+
+    Returns:
+        {"pending": int, "claimed": int, "review": int, "done": int, "failed": int, "total": int}
+    """
+    counts: dict[str, int] = {}
+    total = 0
+    for status in STATUSES:
+        count = len(list((QUEUE_DIR / status).glob("*.json")))
+        counts[status] = count
+        total += count
+    counts["total"] = total
+    return counts
+
+
+def gc_tasks(keep_last: int = 0) -> dict:
+    """Remove worktrees and artifacts for done/failed tasks.
+
+    Args:
+        keep_last: number of most recent done tasks to keep (by created_at).
+                   Failed tasks are always eligible for cleanup.
+
+    Returns:
+        {"removed_worktrees": list[str], "removed_artifacts": list[str], "errors": list[str]}
+    """
+    import shutil
+
+    removed_worktrees: list[str] = []
+    removed_artifacts: list[str] = []
+    errors: list[str] = []
+
+    # Collect done tasks sorted by created_at (newest first) for keep_last
+    done_tasks: list[tuple[str, dict]] = []
+    for path in sorted((QUEUE_DIR / "done").glob("*.json")):
+        try:
+            payload = _read(path)
+            done_tasks.append((payload.get("id", path.stem), payload))
+        except Exception:  # noqa: BLE001
+            continue
+    done_tasks.sort(key=lambda item: item[1].get("created_at", ""), reverse=True)
+
+    # Tasks eligible for cleanup: all failed + done tasks beyond keep_last
+    eligible_ids: list[str] = []
+    for path in (QUEUE_DIR / "failed").glob("*.json"):
+        try:
+            payload = _read(path)
+            eligible_ids.append(payload.get("id", path.stem))
+        except Exception:  # noqa: BLE001
+            continue
+    if keep_last >= 0:
+        for task_id, _ in done_tasks[keep_last:]:
+            eligible_ids.append(task_id)
+    else:
+        # keep_last < 0 means keep all done tasks
+        pass
+
+    for task_id in eligible_ids:
+        worktree_path = WORKTREES_DIR / task_id
+        if worktree_path.exists():
+            try:
+                result = subprocess.run(
+                    ["git", "worktree", "remove", "--force", str(worktree_path)],
+                    cwd=PROJECT_ROOT, capture_output=True, text=True,
+                )
+                if result.returncode == 0:
+                    removed_worktrees.append(task_id)
+                else:
+                    # Fallback: remove directory directly
+                    shutil.rmtree(worktree_path, ignore_errors=True)
+                    if not worktree_path.exists():
+                        removed_worktrees.append(task_id)
+                    else:
+                        errors.append(f"worktree {task_id}: {result.stderr.strip()}")
+            except Exception as exc:  # noqa: BLE001
+                errors.append(f"worktree {task_id}: {exc}")
+
+        artifacts_path = ARTIFACTS_DIR / task_id
+        if artifacts_path.exists():
+            try:
+                shutil.rmtree(artifacts_path)
+                removed_artifacts.append(task_id)
+            except Exception as exc:  # noqa: BLE001
+                errors.append(f"artifacts {task_id}: {exc}")
+
+    return {
+        "removed_worktrees": removed_worktrees,
+        "removed_artifacts": removed_artifacts,
+        "errors": errors,
+    }
+
+
 # ---------------------------------------------------------------------------
 # CLI layer — thin wrappers that parse args and delegate to the API
 # ---------------------------------------------------------------------------
@@ -378,6 +470,25 @@ def cmd_review(args: argparse.Namespace) -> None:
         sys.exit(1)
 
 
+def cmd_status(_: argparse.Namespace) -> None:
+    counts = status_summary()
+    parts = [f"{counts[s]} {s}" for s in STATUSES if counts[s] > 0]
+    print(", ".join(parts) if parts else "Queue is empty.")
+
+
+def cmd_gc(args: argparse.Namespace) -> None:
+    result = gc_tasks(keep_last=args.keep_last)
+    if result["removed_worktrees"]:
+        print(f"Removed {len(result['removed_worktrees'])} worktree(s): {', '.join(result['removed_worktrees'])}")
+    if result["removed_artifacts"]:
+        print(f"Removed {len(result['removed_artifacts'])} artifact dir(s): {', '.join(result['removed_artifacts'])}")
+    if result["errors"]:
+        for error in result["errors"]:
+            print(f"Error: {error}", file=sys.stderr)
+    if not result["removed_worktrees"] and not result["removed_artifacts"]:
+        print("Nothing to clean up.")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Queue manager for cc-duet project sidecars")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -413,8 +524,11 @@ def main() -> None:
     review_parser.add_argument("--score", type=int, required=True)
     review_parser.add_argument("--concerns", nargs="*")
     review_parser.add_argument("--feedback", default=None)
+    sub.add_parser("status")
+    gc_parser = sub.add_parser("gc")
+    gc_parser.add_argument("--keep-last", type=int, default=0, help="Number of most recent done tasks to keep")
     args = parser.parse_args()
-    dispatch = {"create": cmd_create, "list": cmd_list, "get": cmd_get, "next": cmd_next, "move": cmd_move, "submit-result": cmd_submit_result, "review": cmd_review}
+    dispatch = {"create": cmd_create, "list": cmd_list, "get": cmd_get, "next": cmd_next, "move": cmd_move, "submit-result": cmd_submit_result, "review": cmd_review, "status": cmd_status, "gc": cmd_gc}
     dispatch[args.command](args)
 
 

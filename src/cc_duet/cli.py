@@ -662,6 +662,22 @@ def mcp_config(project_target: Path) -> dict:
     }
 
 
+def _load_queue_manager(project_root: Path):
+    """Import queue_manager from the project's scaffolded runtime."""
+    import importlib.util
+
+    scripts_dir = project_root / RUNTIME_DIRNAME / "scripts"
+    qm_path = scripts_dir / "queue_manager.py"
+    if not qm_path.is_file():
+        raise RuntimeError(f"{qm_path} not found; run `cc-duet setup {project_root}` first")
+    spec = importlib.util.spec_from_file_location("queue_manager", qm_path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"Unable to load queue_manager from {qm_path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Install and scaffold the cc-duet workflow into Git projects")
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
@@ -686,6 +702,13 @@ def main() -> None:
 
     mcp_parser = sub.add_parser("mcp-config", help="Print the MCP server configuration for a target project")
     mcp_parser.add_argument("target", nargs="?", default=".")
+
+    status_parser = sub.add_parser("status", help="Show a concise queue summary for a project")
+    status_parser.add_argument("target", nargs="?", default=".")
+
+    gc_parser = sub.add_parser("gc", help="Remove worktrees and artifacts for done/failed tasks")
+    gc_parser.add_argument("target", nargs="?", default=".")
+    gc_parser.add_argument("--keep-last", type=int, default=0, help="Number of most recent done tasks to keep (default: 0)")
 
     args = parser.parse_args()
 
@@ -726,6 +749,37 @@ def main() -> None:
             raise SystemExit(1)
         print(json.dumps(config, indent=2))
         print("\n# Save the above as .mcp.json in your project root to enable MCP.", file=sys.stderr)
+        return
+
+    if args.command == "status":
+        try:
+            project_root = resolve_project_root(Path(args.target))
+            qm = _load_queue_manager(project_root)
+            counts = qm.status_summary()
+            parts = [f"{counts[s]} {s}" for s in qm.STATUSES if counts[s] > 0]
+            print(", ".join(parts) if parts else "Queue is empty.")
+        except RuntimeError as exc:
+            print(f"Error: {exc}", file=sys.stderr)
+            raise SystemExit(1)
+        return
+
+    if args.command == "gc":
+        try:
+            project_root = resolve_project_root(Path(args.target))
+            qm = _load_queue_manager(project_root)
+            result = qm.gc_tasks(keep_last=args.keep_last)
+            if result["removed_worktrees"]:
+                print(f"Removed {len(result['removed_worktrees'])} worktree(s): {', '.join(result['removed_worktrees'])}")
+            if result["removed_artifacts"]:
+                print(f"Removed {len(result['removed_artifacts'])} artifact dir(s): {', '.join(result['removed_artifacts'])}")
+            if result["errors"]:
+                for error in result["errors"]:
+                    print(f"Error: {error}", file=sys.stderr)
+            if not result["removed_worktrees"] and not result["removed_artifacts"]:
+                print("Nothing to clean up.")
+        except RuntimeError as exc:
+            print(f"Error: {exc}", file=sys.stderr)
+            raise SystemExit(1)
         return
 
 

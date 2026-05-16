@@ -194,7 +194,25 @@ def scan_paths_for_secrets(worktree: Path, artifacts_dir: Path, changed_paths: l
     return findings
 
 
-def run_task(task_id: str, dry_run: bool = False) -> int:
+def _cleanup_worktree(task_id: str) -> None:
+    """Remove the worktree for a task after successful submission."""
+    import shutil
+
+    worktree_path = WORKTREES_DIR / task_id
+    if not worktree_path.exists():
+        return
+    try:
+        subprocess.run(
+            ["git", "worktree", "remove", "--force", str(worktree_path)],
+            cwd=PROJECT_ROOT, capture_output=True, text=True,
+        )
+    except Exception:  # noqa: BLE001
+        pass
+    if worktree_path.exists():
+        shutil.rmtree(worktree_path, ignore_errors=True)
+
+
+def run_task(task_id: str, dry_run: bool = False, clean: bool = False) -> int:
     task_path = find_task(task_id)
     if not task_path:
         log(f"ERROR: task {task_id} not found")
@@ -205,7 +223,11 @@ def run_task(task_id: str, dry_run: bool = False) -> int:
         log(f"SKIP: task {task_id} already being processed")
         return 0
     try:
-        return _run_task_locked(task, task_path, dry_run)
+        rc = _run_task_locked(task, task_path, dry_run)
+        if clean and not dry_run and rc == 0:
+            _cleanup_worktree(task_id)
+            log(f"Cleaned up worktree for {task_id}")
+        return rc
     finally:
         lock.release()
 
@@ -308,6 +330,7 @@ def main() -> None:
     group.add_argument("--task-id")
     group.add_argument("--next", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--clean", action="store_true", help="Remove worktree after successful submission to review")
     args = parser.parse_args()
     if args.next:
         payload = qm.next_task()
@@ -317,7 +340,7 @@ def main() -> None:
         task_id = payload["task"]["id"]
     else:
         task_id = args.task_id
-    sys.exit(run_task(task_id, dry_run=args.dry_run))
+    sys.exit(run_task(task_id, dry_run=args.dry_run, clean=args.clean))
 
 
 if __name__ == "__main__":
